@@ -431,3 +431,58 @@
         (ok true)
     )
 )
+
+;; Update Oracle Price Feed
+(define-public (update-price-feed 
+    (symbol (string-ascii 10))
+    (price uint)
+    (timestamp uint))
+    (begin
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+        (asserts! (is-allowed-symbol symbol) ERR-INVALID-SYMBOL)
+        (asserts! (>= timestamp stacks-block-height) ERR-INVALID-TIMESTAMP)
+        (asserts! (> price u0) ERR-INVALID-STRIKE-PRICE)
+        
+        (map-set price-feeds symbol {
+            price: price,
+            timestamp: timestamp,
+            source: tx-sender
+        })
+        (ok true)
+    )
+)
+
+;; Manage Token Whitelist
+(define-public (set-approved-token (token principal) (approved bool))
+    (begin
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-principal token) ERR-INVALID-ADDRESS)
+        (asserts! (not (is-eq token .base)) ERR-INVALID-TOKEN)
+        
+        ;; Protect Critical Tokens
+        (asserts! (or 
+            approved
+            (not (is-critical-token token))
+        ) ERR-NOT-AUTHORIZED)
+        
+        (map-set approved-tokens token approved)
+        (ok true)
+    )
+)
+
+;; Manage Trading Symbol Whitelist
+(define-public (set-allowed-symbol (symbol (string-ascii 10)) (allowed bool))
+    (begin
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-symbol symbol) ERR-EMPTY-SYMBOL)
+        
+        ;; Protect Critical Symbols
+        (asserts! (or 
+            allowed
+            (not (is-critical-symbol symbol))
+        ) ERR-NOT-AUTHORIZED)
+        
+        (map-set allowed-symbols symbol allowed)
+        (ok true)
+    )
+)
