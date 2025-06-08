@@ -102,3 +102,115 @@
     (string-ascii 10)
     bool
 )
+
+;; STATE VARIABLES
+
+;; Sequential Option ID Counter
+(define-data-var next-option-id uint u1)
+
+;; Governance Parameters
+(define-data-var contract-owner principal tx-sender)
+(define-data-var protocol-fee-rate uint u100) ;; 1% = 100 basis points
+
+;; CORE TRADING FUNCTIONS
+
+;; Create New Option Contract
+(define-public (write-option
+    (token <sip-010-trait>)
+    (collateral-amount uint)
+    (strike-price uint)
+    (premium uint)
+    (expiry uint)
+    (option-type (string-ascii 4)))
+    (let (
+        (option-id (var-get next-option-id))
+        (current-time stacks-block-height)
+        (token-principal (contract-of token))
+    )
+        ;; Input Validation
+        (asserts! (is-approved-token token-principal) ERR-INVALID-TOKEN)
+        (asserts! (> expiry current-time) ERR-INVALID-EXPIRY)
+        (asserts! (> strike-price u0) ERR-INVALID-STRIKE-PRICE)
+        (asserts! (> premium u0) ERR-INVALID-PREMIUM)
+        (asserts! (check-collateral-requirement collateral-amount strike-price option-type) ERR-INSUFFICIENT-COLLATERAL)
+        
+        ;; Lock Collateral
+        (try! (contract-call? token transfer 
+            collateral-amount 
+            tx-sender 
+            (as-contract tx-sender) 
+            none))
+        
+        ;; Create Option Record
+        (map-set options option-id {
+            writer: tx-sender,
+            holder: none,
+            collateral-amount: collateral-amount,
+            strike-price: strike-price,
+            premium: premium,
+            expiry: expiry,
+            is-exercised: false,
+            option-type: option-type,
+            state: "ACTIVE"
+        })
+        
+        ;; Update Writer Portfolio
+        (let ((current-position (default-to 
+            { written-options: (list ), held-options: (list ), total-collateral-locked: u0 }
+            (map-get? user-positions tx-sender))))
+            (map-set user-positions tx-sender
+                (merge current-position {
+                    written-options: (unwrap-panic (as-max-len? 
+                        (append (get written-options current-position) option-id) u10)),
+                    total-collateral-locked: (+ (get total-collateral-locked current-position) collateral-amount)
+                })
+            )
+        )
+        
+        ;; Increment Counter
+        (var-set next-option-id (+ option-id u1))
+        (ok option-id)
+    )
+)
+
+;; Purchase Option Contract
+(define-public (buy-option 
+    (token <sip-010-trait>)
+    (option-id uint))
+    (let (
+        (option (unwrap! (map-get? options option-id) ERR-OPTION-NOT-FOUND))
+        (premium (get premium option))
+        (token-principal (contract-of token))
+    )
+        ;; Validation Checks
+        (asserts! (is-approved-token token-principal) ERR-INVALID-TOKEN)
+        (asserts! (is-none (get holder option)) ERR-ALREADY-EXERCISED)
+        (asserts! (< stacks-block-height (get expiry option)) ERR-OPTION-EXPIRED)
+        
+        ;; Process Premium Payment
+        (try! (contract-call? token transfer
+            premium
+            tx-sender
+            (get writer option)
+            none))
+        
+        ;; Update Option Ownership
+        (map-set options option-id (merge option { 
+            holder: (some tx-sender)
+        }))
+        
+        ;; Update Buyer Portfolio
+        (let ((current-position (default-to 
+            { written-options: (list ), held-options: (list ), total-collateral-locked: u0 }
+            (map-get? user-positions tx-sender))))
+            (map-set user-positions tx-sender
+                (merge current-position {
+                    held-options: (unwrap-panic (as-max-len? 
+                        (append (get held-options current-position) option-id) u10))
+                })
+            )
+        )
+        
+        (ok true)
+    )
+)
