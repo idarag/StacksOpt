@@ -333,3 +333,101 @@
         (ok true)
     )
 )
+
+;; ORACLE & PRICING FUNCTIONS
+
+;; Get Current Market Price from Oracle
+(define-private (get-current-price)
+    (get price (unwrap! (map-get? price-feeds "BTC-USD") u0))
+)
+
+;; Utility function to get option ID (placeholder implementation)
+(define-private (get-option-id (option {
+        writer: principal,
+        holder: (optional principal),
+        collateral-amount: uint,
+        strike-price: uint,
+        premium: uint,
+        expiry: uint,
+        is-exercised: bool,
+        option-type: (string-ascii 4),
+        state: (string-ascii 9)
+    }))
+    (var-get next-option-id)
+)
+
+;; VALIDATION HELPERS
+
+;; Check Token Approval Status
+(define-private (is-approved-token (token principal))
+    (default-to false (map-get? approved-tokens token))
+)
+
+;; Check Symbol Approval Status
+(define-private (is-allowed-symbol (symbol (string-ascii 10)))
+    (default-to false (map-get? allowed-symbols symbol))
+)
+
+;; Validate Principal Address
+(define-private (is-valid-principal (address principal))
+    (and 
+        (not (is-eq address (as-contract tx-sender)))
+        (not (is-eq address .base))
+        (not (is-eq address tx-sender))
+        true
+    )
+)
+
+;; Validate Trading Symbol
+(define-private (is-valid-symbol (symbol (string-ascii 10)))
+    (and
+        (not (is-eq symbol ""))
+        (not (is-eq symbol " "))
+        (>= (len symbol) u2)
+    )
+)
+
+;; Check Critical Token Status
+(define-private (is-critical-token (token principal))
+    (or 
+        (is-eq token .wrapped-btc)
+        (is-eq token .wrapped-stx)
+    )
+)
+
+;; Check Critical Symbol Status
+(define-private (is-critical-symbol (symbol (string-ascii 10)))
+    (or
+        (is-eq symbol "BTC-USD")
+        (is-eq symbol "STX-USD")
+    )
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Get Option Details
+(define-read-only (get-option (option-id uint))
+    (map-get? options option-id)
+)
+
+;; Get User Portfolio
+(define-read-only (get-user-position (user principal))
+    (map-get? user-positions user)
+)
+
+;; Get Protocol Fee Rate
+(define-read-only (get-protocol-fee-rate)
+    (var-get protocol-fee-rate)
+)
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Update Protocol Fee Structure
+(define-public (set-protocol-fee-rate (new-rate uint))
+    (begin
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+        (asserts! (<= new-rate u1000) ERR-INVALID-PREMIUM)  ;; Max 10%
+        (var-set protocol-fee-rate new-rate)
+        (ok true)
+    )
+)
